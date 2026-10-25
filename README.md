@@ -27,7 +27,7 @@ Both desktops keep running side by side, so every app you left open is still the
    desktop-switcher shortcut
    ```
    Log out of Plasma and back in once so its shortcut takes effect.
-5. **Let Chrome, Discord and Steam follow you** (optional, see [Apps that only run once](#apps-that-only-run-once)):
+5. **Let your browser, Discord and Steam follow you** (optional, see [Apps that only run once](#apps-that-only-run-once)):
    ```sh
    desktop-switcher apps setup
    ```
@@ -49,7 +49,7 @@ Both desktops keep running side by side, so every app you left open is still the
 | `desktop-switcher stop` | close the background desktop and everything open in it |
 | `desktop-switcher doctor` | check the setup |
 | `desktop-switcher shortcut` | add Super+S to niri and Plasma |
-| `desktop-switcher apps` | show where Chrome, Discord and Steam are running |
+| `desktop-switcher apps` | show where your browser, Discord and Steam are running |
 
 Good to know:
 
@@ -58,11 +58,12 @@ Good to know:
 
 ## Apps that only run once
 
-Chrome, Discord and Steam run only once per user. Normally, if one is open on one desktop and you start it on the other, its window opens on the first desktop, where you can't see it.
+Browsers, Discord and Steam run only once per user. Normally, if one is open on one desktop and you start it on the other, its window opens on the first desktop, where you can't see it.
 
 After `desktop-switcher apps setup`, opening one of these apps from your app menu or launcher moves it to the desktop you are on:
 
 - **Chrome** (also Chromium and Brave) closes on the other desktop and opens here with all your tabs.
+- **Firefox** closes on the other desktop and opens here. To get your tabs back, turn on **Open previous windows and tabs** in Firefox's settings (General, Startup) once.
 - **Discord** closes on the other desktop and opens here.
 - **Steam** shuts down on the other desktop and opens here. This can take up to a minute; a notification tells you it's moving. Close your game first.
 
@@ -70,7 +71,7 @@ Text you typed but didn't send or save inside the app, such as a half-written Di
 
 The setup adds your own copies of these apps' launchers to `~/.local/share/applications`, so it works the same in both desktops and survives app updates. Apps that start on their own when you log in, and apps installed as Flatpak, are not moved. To go back to the normal launchers, run `desktop-switcher apps remove`.
 
-You can also move an app from a terminal or a keyboard shortcut with `desktop-switcher open chrome` (or `discord`, `steam`, `chromium`, `brave`).
+You can also move an app from a terminal or a keyboard shortcut with `desktop-switcher open chrome` (or `firefox`, `discord`, `steam`, `chromium`, `brave`).
 
 ## If something goes wrong
 

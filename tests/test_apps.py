@@ -57,6 +57,15 @@ class ProcessTest(unittest.TestCase):
         self.assertEqual(apps.running_elsewhere(CHROME, processes, HERE), [])
 
 
+class FirefoxTest(unittest.TestCase):
+    def test_content_processes_are_not_main(self):
+        processes = [
+            Process(300, 1, "/usr/lib/firefox/firefox", THERE),
+            Process(301, 300, "/usr/lib/firefox/firefox", THERE),
+        ]
+        self.assertEqual([p.pid for p in apps.running_elsewhere(apps.APPS["firefox"], processes, HERE)], [300])
+
+
 class OpenTest(unittest.TestCase):
     def run_open(self, argv, elsewhere, closed=True):
         with mock.patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-0"}), mock.patch.object(

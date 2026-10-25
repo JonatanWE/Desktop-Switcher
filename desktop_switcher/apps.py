@@ -1,6 +1,6 @@
 """Move apps that only run once per user to the desktop you open them on.
 
-Chrome, Discord and Steam allow one running copy per user. Started a second
+Browsers, Discord and Steam allow one running copy per user. Started a second
 time, they hand the request to the running copy, so the window opens on
 whichever desktop that copy lives on. ``desktop-switcher open`` closes the
 copy on the other desktop first, then starts the app here.
@@ -61,6 +61,9 @@ APPS = {
             "brave-browser.desktop",
             restore_args=("--restore-last-session",),
         ),
+        # Firefox has no flag to restore tabs; it reopens them when "Open
+        # previous windows and tabs" is on in its settings.
+        App("firefox", "Firefox", frozenset({"firefox", "firefox-bin"}), ("firefox",), "firefox.desktop"),
         App("discord", "Discord", frozenset({"Discord"}), ("discord",), "discord.desktop"),
         App(
             "steam",
