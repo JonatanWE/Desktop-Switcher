@@ -1,81 +1,87 @@
 # Desktop Switcher
 
-Switch between two Linux desktops (for example KDE Plasma and Hyprland) with one key, without logging out, rebooting or closing anything.
+Switch between two Linux desktops with one key, without logging out, rebooting or closing anything.
 
-**Status: phase 1, untested on real hardware.** Both desktops run at the same time under your own user, and the switch flips which one is on screen. Windows stay on the desktop where you opened them. Carrying apps across desktops (Chrome tabs, unsaved editor work) is phase 2.
+Both desktops keep running side by side, so every app you left open is still there when you come back. Tested on CachyOS with an NVIDIA RTX 4070, using KDE Plasma and niri.
+
+## Quick start
+
+1. **Download and install** (in a terminal):
+   ```sh
+   git clone https://github.com/JonatanWE/desktop-switcher
+   cd desktop-switcher
+   sudo ./install.sh
+   ```
+2. **Choose your two desktops.** `list` shows the names your login screen uses:
+   ```sh
+   desktop-switcher list
+   desktop-switcher pair plasma niri
+   ```
+3. **Check the setup:**
+   ```sh
+   desktop-switcher doctor
+   ```
+4. **Add the shortcut.** This binds **Super+S** in niri and Plasma for you:
+   ```sh
+   desktop-switcher shortcut
+   ```
+   Log out of Plasma and back in once so its shortcut takes effect.
+5. **Press Super+S.** The first time, the other desktop starts in the background, which takes a few seconds. After that, switching is instant.
+
+## Which desktops work
+
+- **The desktop you log in to** can be any desktop, including KDE Plasma and GNOME.
+- **The background desktop** must be a standalone compositor, such as **niri**, **Hyprland** or **Sway**. KDE Plasma and GNOME can't run in the background, because they share parts of your account's session with the desktop you logged in to.
+
+`desktop-switcher doctor` tells you which of your two desktops can run in the background.
+
+## Everyday use
+
+| Command | What it does |
+| --- | --- |
+| Super+S, or `desktop-switcher switch` | switch to the other desktop |
+| `desktop-switcher status` | show which desktops are running |
+| `desktop-switcher stop` | close the background desktop and everything open in it |
+| `desktop-switcher doctor` | check the setup |
+| `desktop-switcher shortcut` | add Super+S to niri and Plasma |
+
+Good to know:
+
+- **Windows stay on their own desktop.** An app opened in niri stays in niri.
+- **Some apps only run once per user**, such as Chrome, Discord and Steam. If one is open on one desktop and you start it on the other, its window opens on the first desktop. Keep each of these on one desktop.
+- **For other desktops** than niri and Plasma, bind a key to the command `desktop-switcher switch` in that desktop's keyboard settings.
+
+## If something goes wrong
+
+- **The switch fails.** You stay on your current desktop and get an error message. See what happened with:
+  ```sh
+  journalctl -b -u desktop-switcher-secondary@$USER
+  ```
+- **The screen is black or stuck.** Ctrl+Alt+F1 to F7 takes you back to the desktop you logged in to. The background desktop is on Ctrl+Alt+F8.
+- **Start over:** `desktop-switcher stop`, then press Super+S again.
+- **NVIDIA graphics:** if windows look glitchy after switching, and `doctor` warns about video memory, add `options nvidia NVreg_PreserveVideoMemoryAllocations=1` to a file in `/etc/modprobe.d/` and reboot.
+
+## Update or remove
+
+- **Update:** `git pull` in the `desktop-switcher` folder, then `sudo ./install.sh` again.
+- **Remove:** `sudo ./uninstall.sh`. Your settings in `~/.config/desktop-switcher` are kept.
 
 ## How it works
 
-1. You log in to one desktop of your pair from the normal login screen. This is the *primary* desktop.
-2. The first time you press switch, the other desktop starts in the background on its own virtual terminal (VT 8 by default). The screen only switches once it has stayed up for two seconds; if it fails to start, you stay where you are and get an error.
-3. Every later press just flips between the two. Both keep running, so nothing closes.
+You log in to one desktop as usual. The other desktop runs as a system service that opens its own login session on virtual terminal 8, so it gets the graphics card and keyboard exactly like a normal login. It also gets its own D-Bus bus, so the two desktops don't fight over the same services. Switching just changes which login session is on screen.
 
-The second desktop runs as a systemd service that opens a real login session on its terminal, so it gets the GPU and input exactly like a normal login. It also gets its own D-Bus session bus, so two desktops under one user do not fight over the same services.
-
-## Install (CachyOS / Arch)
-
-```sh
-git clone https://github.com/JonatanWE/desktop-switcher
-cd desktop-switcher
-sudo ./install.sh            # or: sudo ./install.sh --vt 9
-```
-
-This installs:
+The installer adds these files:
 
 | File | Purpose |
 | --- | --- |
 | `/usr/bin/desktop-switcher` | the command |
 | `/usr/lib/desktop-switcher/` | its Python code (standard library only) |
 | `/etc/systemd/system/desktop-switcher-secondary@.service` | runs the background desktop |
-| `/etc/polkit-1/rules.d/50-desktop-switcher.rules` | lets you start/stop *your own* background desktop without a password |
-| `/usr/share/applications/desktop-switcher.desktop` | a "Switch Desktop" launcher entry |
-| `/etc/desktop-switcher.conf` | which VT the background desktop uses |
+| `/etc/polkit-1/rules.d/50-desktop-switcher.rules` | lets you start and stop your own background desktop without a password |
+| `/usr/share/applications/desktop-switcher.desktop` | a "Switch Desktop" entry in the app menu |
+| `/etc/desktop-switcher.conf` | which virtual terminal the background desktop uses |
 
-Remove everything with `sudo ./uninstall.sh`.
-
-## Set up your pair
-
-```sh
-desktop-switcher list                  # desktops your login screen offers
-desktop-switcher pair hyprland plasma  # use the ids from the list
-desktop-switcher doctor                # checks setup, including NVIDIA settings
-```
-
-## Bind a key
-
-Bind `desktop-switcher switch` to the same key in **both** desktops.
-
-- **KDE Plasma:** System Settings, Keyboard, Shortcuts, Add New, Command or Script. Command: `desktop-switcher switch`.
-- **Hyprland:** in `~/.config/hypr/hyprland.conf`: `bind = SUPER, F12, exec, desktop-switcher switch`
-- **Sway:** in `~/.config/sway/config`: `bindsym Mod4+F12 exec desktop-switcher switch`
-- **niri:** in `~/.config/niri/config.kdl`, inside `binds`: `Mod+F12 { spawn "desktop-switcher" "switch"; }`
-- **GNOME:** Settings, Keyboard, Custom Shortcuts, command `desktop-switcher switch`.
-
-You can also start "Switch Desktop" from the app launcher.
-
-## Commands
-
-| Command | What it does |
-| --- | --- |
-| `desktop-switcher switch` | go to the other desktop, starting it if needed |
-| `desktop-switcher switch --dry-run` | print what switch would do |
-| `desktop-switcher status` | show which desktops are running and on which VT |
-| `desktop-switcher stop` | stop the background desktop (closes apps open in it) |
-| `desktop-switcher doctor` | check the installation |
-
-## Known limits in phase 1
-
-- **Windows do not move.** Each window stays on the desktop where it was opened.
-- **Single-instance apps.** Chrome, Discord and Steam allow only one copy per user. If Chrome is open on desktop A and you launch it on desktop B, the new window will appear on desktop A. Start such apps on the desktop where you want them, or close them first. Phase 2 fixes this.
-- **Which desktop runs in the background.** KDE Plasma and GNOME depend on the systemd user session shared by your whole account, so they must be the desktop you log in to. The background desktop must be a standalone compositor such as niri, Hyprland or Sway. niri is started directly with `niri` instead of `niri-session`, because `niri-session` would log you out of the other desktop when it stops. `desktop-switcher doctor` shows which of your pair can run in the background.
-- **Wayland only.** X11 sessions are listed but cannot be paired yet.
-- **NVIDIA:** `nvidia_drm.modeset=1` is required. `NVreg_PreserveVideoMemoryAllocations=1` is recommended so windows are not corrupted after a switch. `doctor` checks both.
-
-## Troubleshooting
-
-- If the switch hangs or the screen stays black, press **Ctrl+Alt+F1** to F7 to get back to your login desktop. The background desktop is on **Ctrl+Alt+F8** by default.
-- Logs of the background desktop: `journalctl -b -u desktop-switcher-secondary@$USER`
-- Start over: `desktop-switcher stop`, then `desktop-switcher switch`.
+To use another terminal than 8, install with `sudo ./install.sh --vt 9`.
 
 ## Development
 
@@ -83,9 +89,3 @@ You can also start "Switch Desktop" from the app launcher.
 python -m unittest discover -s tests -v
 python -m desktop_switcher --help
 ```
-
-## Roadmap
-
-1. **Phase 1 (this):** both desktops running, one-key switch.
-2. **Phase 2:** a background app layer (wprs) so chosen apps follow you between desktops with tabs and unsaved work intact.
-3. **Phase 3:** a settings app where you pick your two desktops and choose per app whether it runs in the background layer or on one desktop only, plus a tray button and an AUR package.

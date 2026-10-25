@@ -11,7 +11,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import config, logind, sessions
+from . import config, logind, sessions, shortcuts
 from .switch import SwitchError, plan
 
 UNIT_FILE = Path("/etc/systemd/system/desktop-switcher-secondary@.service")
@@ -146,6 +146,20 @@ def cmd_switch(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_shortcut(args: argparse.Namespace) -> int:
+    pair = _pair_or_exit(config.load())
+    for desktop in pair:
+        setup = shortcuts.SETUP.get(desktop)
+        if setup is None:
+            print(
+                f"{desktop}: set this up by hand. Bind a key to the command "
+                "'desktop-switcher switch' in its keyboard settings."
+            )
+        else:
+            print(setup())
+    return 0
+
+
 def cmd_stop(args: argparse.Namespace) -> int:
     subprocess.run(["systemctl", "stop", unit_name(getpass.getuser())], check=True)
     print("Background desktop stopped. Apps that were open in it have closed.")
@@ -256,6 +270,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true", help="print what would happen")
     p.set_defaults(func=cmd_switch)
 
+    sub.add_parser("shortcut", help="bind Super+S to switch in both desktops").set_defaults(func=cmd_shortcut)
     sub.add_parser("stop", help="stop the background desktop").set_defaults(func=cmd_stop)
     sub.add_parser("doctor", help="check the setup").set_defaults(func=cmd_doctor)
 
