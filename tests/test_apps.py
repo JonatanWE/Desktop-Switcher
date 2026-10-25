@@ -151,7 +151,7 @@ class CustomAppTest(unittest.TestCase):
         system = self.root / "system" / "applications"
         system.mkdir(parents=True)
         (system / "spotify-launcher.desktop").write_text(
-            "[Desktop Entry]\nName=Spotify\nExec=env LANG=C spotify-launcher %U\n"
+            "[Desktop Entry]\nName=Spotify (Launcher)\nExec=env LANG=C spotify-launcher %U\nStartupWMClass=Spotify\n"
             "[Desktop Action x]\nName=Other\nExec=other\n"
         )
         (system / "com.example.Flat.desktop").write_text("[Desktop Entry]\nName=Flat\nExec=/usr/bin/flatpak run x\n")
@@ -168,19 +168,28 @@ class CustomAppTest(unittest.TestCase):
         with mock.patch.object(apps.shutil, "which", return_value=None):
             app = apps.add_custom("spotify")
         self.assertEqual(app.id, "spotify-launcher")
-        self.assertEqual(app.name, "Spotify")
+        self.assertEqual(app.name, "Spotify (Launcher)")
         self.assertEqual(app.command, ("spotify-launcher",))
-        self.assertEqual(app.exe_names, frozenset({"spotify-launcher"}))
+        self.assertEqual(app.exe_names, frozenset({"spotify-launcher", "Spotify", "spotify"}))
         self.assertIn("spotify-launcher", apps.all_apps())
 
     def test_process_follows_symlink(self):
         with mock.patch.object(apps.shutil, "which", return_value="/usr/bin/spotify-launcher"), mock.patch.object(
             apps.os.path, "realpath", return_value="/opt/spotify/spotify"
         ):
-            self.assertEqual(apps.add_custom("Spotify").exe_names, frozenset({"spotify"}))
+            self.assertEqual(apps.add_custom("Spotify").exe_names, frozenset({"spotify", "Spotify"}))
 
     def test_process_override(self):
         self.assertEqual(apps.add_custom("spotify-launcher.desktop", "Spotify").exe_names, frozenset({"Spotify"}))
+
+    def test_exact_name_and_ambiguity(self):
+        system = Path(os.environ["XDG_DATA_DIRS"]) / "applications"
+        (system / "spotify-tui.desktop").write_text("[Desktop Entry]\nName=Spotify TUI\nExec=spt\n")
+        with self.assertRaises(apps.AddError) as err:
+            apps.add_custom("spotify")
+        self.assertIn("More than one", str(err.exception))
+        self.assertEqual(apps.add_custom("Spotify TUI").id, "spotify-tui")
+        self.assertEqual(apps.add_custom("spotify-launcher").id, "spotify-launcher")
 
     def test_refusals(self):
         for query in ("nothing", "Flat", "discord"):
@@ -189,7 +198,7 @@ class CustomAppTest(unittest.TestCase):
 
     def test_forget(self):
         apps.add_custom("Spotify", "spotify")
-        self.assertEqual(apps.forget_custom("spotify-launcher").name, "Spotify")
+        self.assertEqual(apps.forget_custom("spotify-launcher").name, "Spotify (Launcher)")
         self.assertNotIn("spotify-launcher", apps.all_apps())
         self.assertIsNone(apps.forget_custom("spotify-launcher"))
 

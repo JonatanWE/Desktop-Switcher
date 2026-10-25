@@ -130,63 +130,86 @@ def all_apps() -> dict[str, App]:
     return {**custom_apps(), **APPS}
 
 
-def _launcher_command(text: str) -> tuple[str, list[str]]:
-    """Name and first Exec command of a .desktop file, without field codes."""
-    name, command, in_entry = "", [], False
-    for line in text.splitlines():
+@dataclass
+class Launcher:
+    path: Path
+    name: str
+    command: list[str]
+    wm_class: str
+
+
+def read_launcher(path: Path) -> Launcher:
+    """Name, first Exec command (without field codes) and window class of a .desktop file."""
+    name, command, wm_class, in_entry = "", [], "", False
+    for line in path.read_text(encoding="utf-8").splitlines():
         if line.startswith("["):
             in_entry = line.strip() == "[Desktop Entry]"
         elif in_entry and line.startswith("Name=") and not name:
             name = line[len("Name="):].strip()
+        elif in_entry and line.startswith("StartupWMClass="):
+            wm_class = line[len("StartupWMClass="):].strip()
         elif in_entry and line.startswith("Exec=") and not command:
             command = [arg for arg in shlex.split(line[len("Exec="):]) if not re.fullmatch(r"%[a-zA-Z]", arg)]
     while command[:1] == ["env"] or (command and "=" in command[0] and not command[0].startswith("/")):
         command = command[1:]  # env FOO=bar app ...
-    return name, command
+    return Launcher(path, name, command, wm_class)
 
 
-def find_launcher_by_name(query: str) -> Path | None:
-    """A system launcher by file name (spotify, spotify.desktop) or display name."""
-    stem = query.removesuffix(".desktop")
-    candidates = []
-    for base in _data_dirs():
+def find_launcher_by_name(query: str) -> Launcher:
+    """A system launcher by file name (spotify-launcher.desktop) or app menu name.
+
+    An exact match wins. Otherwise a single launcher whose name or file name
+    contains ``query`` is used, so "Spotify" finds "Spotify (Launcher)".
+    """
+    stem = query.removesuffix(".desktop").lower()
+    launchers = {}
+    for base in reversed(_data_dirs()):  # earlier directories take precedence
         directory = base / "applications"
-        if (directory / f"{stem}.desktop").exists():
-            return directory / f"{stem}.desktop"
-        if directory.is_dir():
-            candidates += sorted(directory.glob("*.desktop"))
-    for path in candidates:
-        try:
-            name, _ = _launcher_command(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, ValueError):
-            continue
-        if name.lower() == query.lower():
-            return path
-    return None
+        for path in sorted(directory.glob("*.desktop")) if directory.is_dir() else []:
+            try:
+                launchers[path.name] = read_launcher(path)
+            except (OSError, UnicodeDecodeError, ValueError):
+                continue
+    found = list(launchers.values())
+    for matches in (
+        [l for l in found if l.path.stem.lower() == stem],
+        [l for l in found if l.name.lower() == query.lower()],
+        [l for l in found if stem in l.path.stem.lower() or query.lower() in l.name.lower()],
+    ):
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            names = ", ".join(sorted(f"'{l.name}' ({l.path.name})" for l in matches))
+            raise AddError(f"More than one app matches '{query}': {names}. Use the full name in quotes.")
+    raise AddError(
+        f"No app launcher called '{query}' found. Use the name from your app menu, "
+        "or the launcher's file name from /usr/share/applications."
+    )
 
 
 def add_custom(query: str, process: str = "") -> App:
     """Remember an app from its launcher so ``open`` and ``apps setup`` handle it."""
-    path = find_launcher_by_name(query)
-    if path is None:
-        raise AddError(
-            f"No app launcher called '{query}' found. Use the name from your app menu, "
-            "or the launcher's file name from /usr/share/applications."
-        )
-    name, command = _launcher_command(path.read_text(encoding="utf-8"))
+    launcher = find_launcher_by_name(query)
+    command = launcher.command
     if not command:
-        raise AddError(f"{path} has no command to start the app.")
+        raise AddError(f"{launcher.path} has no command to start the app.")
     if os.path.basename(command[0]) == "flatpak":
         raise AddError("Flatpak apps can't be moved between desktops yet.")
-    app_id = re.sub(r"[^a-z0-9.-]+", "-", path.stem.lower()).strip("-")
+    app_id = re.sub(r"[^a-z0-9.-]+", "-", launcher.path.stem.lower()).strip("-")
     if app_id in APPS:
         raise AddError(f"{APPS[app_id].name} is already built in. Run: desktop-switcher apps setup")
-    if not process:
+    if process:
+        names = [process]
+    else:
+        # The command is often a script or launcher that starts the real
+        # program, so also look for the window class, which usually is its name.
         binary = shutil.which(command[0])
-        process = os.path.basename(os.path.realpath(binary)) if binary else os.path.basename(command[0])
+        names = [os.path.basename(os.path.realpath(binary)) if binary else os.path.basename(command[0])]
+        if launcher.wm_class:
+            names += [launcher.wm_class, launcher.wm_class.lower()]
     parser = _read_custom()
-    parser[app_id] = {"name": name or app_id, "launcher": path.name, "command": shlex.join(command),
-                      "process": process}
+    parser[app_id] = {"name": launcher.name or app_id, "launcher": launcher.path.name,
+                      "command": shlex.join(command), "process": ",".join(dict.fromkeys(names))}
     _write_custom(parser)
     return custom_apps()[app_id]
 
