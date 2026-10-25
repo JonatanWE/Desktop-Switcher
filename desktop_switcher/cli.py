@@ -17,6 +17,7 @@ from .switch import SwitchError, plan
 UNIT_FILE = Path("/etc/systemd/system/desktop-switcher-secondary@.service")
 POLKIT_RULE = Path("/etc/polkit-1/rules.d/50-desktop-switcher.rules")
 START_TIMEOUT = 20.0
+SETTLE_TIME = 2.0
 
 
 def unit_name(user: str) -> str:
@@ -64,19 +65,35 @@ def cmd_status(args: argparse.Namespace) -> int:
     for s in logind.user_sessions(user):
         if not s.graphical:
             continue
-        role = "background" if s.vt == vt else "login screen"
+        role = "background" if s.vt == vt else "main, from login screen"
         desktop = config.read_secondary_desktop() if s.vt == vt else s.desktop
         mark = "*" if s.active else " "
         print(f"{mark} session {s.id}: VT {s.vt}, {desktop or 'unknown'} ({role})")
     return 0
 
 
+def _unit_active(user: str) -> bool:
+    result = subprocess.run(["systemctl", "is-active", "--quiet", unit_name(user)])
+    return result.returncode == 0
+
+
 def _wait_for_secondary(user: str, vt: int) -> logind.LoginSession | None:
+    """Wait until the background desktop has a session and keeps running.
+
+    Switching the screen to a desktop that has already died leaves you on an
+    empty terminal, so we only return once it has stayed up for SETTLE_TIME.
+    """
     deadline = time.monotonic() + START_TIMEOUT
+    found: logind.LoginSession | None = None
+    alive_since = 0.0
     while time.monotonic() < deadline:
-        for s in logind.user_sessions(user):
-            if s.vt == vt and s.graphical:
-                return s
+        if not _unit_active(user):
+            return None
+        if found is None:
+            found = next((s for s in logind.user_sessions(user) if s.vt == vt and s.graphical), None)
+            alive_since = time.monotonic()
+        elif time.monotonic() - alive_since >= SETTLE_TIME:
+            return found
         time.sleep(0.25)
     return None
 
@@ -107,13 +124,23 @@ def cmd_switch(args: argparse.Namespace) -> int:
         logind.activate(step.session_id)
         return 0
 
+    target = installed.get(step.target)
+    if target is None:
+        sys.exit(f"'{step.target}' is not installed. See 'desktop-switcher list'.")
+    try:
+        sessions.launch_command(target)
+    except sessions.NotBackgroundCapable as err:
+        sys.exit(str(err))
+
     config.write_secondary_desktop(step.target)
+    print(f"Starting {target.name} in the background...", flush=True)
     subprocess.run(["systemctl", "start", unit_name(user)], check=True)
     started = _wait_for_secondary(user, vt)
     if started is None:
+        subprocess.run(["systemctl", "stop", unit_name(user)])
         sys.exit(
-            f"{step.target} did not start within {START_TIMEOUT:.0f} seconds. "
-            f"See: journalctl -b -u {unit_name(user)}"
+            f"{target.name} did not start, so the screen was not switched. "
+            f"See what happened with: journalctl -b -u {unit_name(user)}"
         )
     logind.activate(started.id)
     return 0
@@ -126,16 +153,39 @@ def cmd_stop(args: argparse.Namespace) -> int:
 
 
 def cmd_run_secondary(args: argparse.Namespace) -> int:
-    """Entry point of the systemd unit: replace this process with the desktop."""
+    """Entry point of the systemd unit: run the desktop and report how it ended.
+
+    The desktop runs as a child rather than replacing this process, so its
+    exit status always reaches the journal. Output of a process that exits
+    immediately can otherwise be lost from ``journalctl -u``.
+    """
     desktop = config.read_secondary_desktop()
     session = sessions.discover().get(desktop)
     if session is None:
-        print(f"desktop-switcher: unknown desktop '{desktop}'", file=sys.stderr)
+        print(f"unknown desktop '{desktop}'", file=sys.stderr, flush=True)
         return 1
-    command = sessions.launch_command(session)
-    print(f"desktop-switcher: starting {session.name}: {' '.join(command)}", flush=True)
-    os.execvpe(command[0], command, sessions.launch_environment(session, dict(os.environ)))
-    return 1  # not reached
+    try:
+        command = sessions.launch_command(session)
+    except sessions.NotBackgroundCapable as err:
+        print(err, file=sys.stderr, flush=True)
+        return 1
+    print(
+        f"starting {session.name}: {' '.join(command)} "
+        f"(session {os.environ.get('XDG_SESSION_ID', '?')}, VT {os.environ.get('XDG_VTNR', '?')})",
+        flush=True,
+    )
+    started = time.monotonic()
+    result = subprocess.run(command, env=sessions.launch_environment(session, dict(os.environ)))
+    print(f"{session.name} exited with status {result.returncode} after {time.monotonic() - started:.1f}s", flush=True)
+    return result.returncode
+
+
+def _can_background(session: sessions.Session) -> bool:
+    try:
+        sessions.launch_command(session)
+        return True
+    except sessions.NotBackgroundCapable:
+        return False
 
 
 def _check(ok: bool, text: str, hint: str = "") -> bool:
@@ -155,12 +205,20 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     installed = sessions.discover()
     if _check(bool(cfg.pair), "desktop pair set", "Run: desktop-switcher pair <a> <b>"):
         for desktop in cfg.pair:
-            good &= _check(desktop in installed, f"'{desktop}' is installed", "See: desktop-switcher list")
-            if "gnome" in desktop.lower():
-                print(
-                    "     note: GNOME depends on the shared systemd user session and may refuse "
-                    "to start as a second desktop for the same user."
-                )
+            if not _check(desktop in installed, f"'{desktop}' is installed", "See: desktop-switcher list"):
+                good = False
+                continue
+            try:
+                command = sessions.launch_command(installed[desktop])
+                print(f"     '{desktop}' can run in the background as: {' '.join(command)}")
+            except sessions.NotBackgroundCapable as err:
+                print(f"     '{desktop}' must be the one you log in to: {err}")
+        background_capable = [d for d in cfg.pair if d in installed and _can_background(installed[d])]
+        good &= _check(
+            bool(background_capable),
+            "at least one desktop of the pair can run in the background",
+            "Pair a standalone compositor such as niri, Hyprland or Sway.",
+        )
     else:
         good = False
 

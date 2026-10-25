@@ -7,7 +7,7 @@ Switch between two Linux desktops (for example KDE Plasma and Hyprland) with one
 ## How it works
 
 1. You log in to one desktop of your pair from the normal login screen. This is the *primary* desktop.
-2. The first time you press switch, the other desktop starts in the background on its own virtual terminal (VT 8 by default) and comes to the screen.
+2. The first time you press switch, the other desktop starts in the background on its own virtual terminal (VT 8 by default). The screen only switches once it has stayed up for two seconds; if it fails to start, you stay where you are and get an error.
 3. Every later press just flips between the two. Both keep running, so nothing closes.
 
 The second desktop runs as a systemd service that opens a real login session on its terminal, so it gets the GPU and input exactly like a normal login. It also gets its own D-Bus session bus, so two desktops under one user do not fight over the same services.
@@ -67,7 +67,7 @@ You can also start "Switch Desktop" from the app launcher.
 
 - **Windows do not move.** Each window stays on the desktop where it was opened.
 - **Single-instance apps.** Chrome, Discord and Steam allow only one copy per user. If Chrome is open on desktop A and you launch it on desktop B, the new window will appear on desktop A. Start such apps on the desktop where you want them, or close them first. Phase 2 fixes this.
-- **GNOME** depends on the shared systemd user session and may not start as the second desktop for the same user. KDE Plasma, Hyprland, Sway and niri should work.
+- **Which desktop runs in the background.** KDE Plasma and GNOME depend on the systemd user session shared by your whole account, so they must be the desktop you log in to. The background desktop must be a standalone compositor such as niri, Hyprland or Sway. niri is started directly with `niri` instead of `niri-session`, because `niri-session` would log you out of the other desktop when it stops. `desktop-switcher doctor` shows which of your pair can run in the background.
 - **Wayland only.** X11 sessions are listed but cannot be paired yet.
 - **NVIDIA:** `nvidia_drm.modeset=1` is required. `NVreg_PreserveVideoMemoryAllocations=1` is recommended so windows are not corrupted after a switch. `doctor` checks both.
 

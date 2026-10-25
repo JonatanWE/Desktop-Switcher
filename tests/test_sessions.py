@@ -68,6 +68,10 @@ class DiscoverTest(unittest.TestCase):
         self.assertEqual(sessions.discover(("/nonexistent",), ()), {})
 
 
+def _session(id_, *exec_):
+    return sessions.Session(id=id_, name=id_, exec=exec_, type="wayland")
+
+
 class LaunchTest(unittest.TestCase):
     session = sessions.Session(
         id="plasma",
@@ -79,14 +83,27 @@ class LaunchTest(unittest.TestCase):
 
     def test_command_uses_private_bus(self):
         self.assertEqual(
-            sessions.launch_command(self.session),
-            [
-                "dbus-run-session",
-                "--",
-                "/usr/lib/plasma-dbus-run-session-if-needed",
-                "/usr/bin/startplasma-wayland",
-            ],
+            sessions.launch_command(_session("hyprland", "Hyprland")),
+            ["dbus-run-session", "--", "Hyprland"],
         )
+
+    def test_niri_session_runs_niri_directly(self):
+        # niri-session would hand niri to the shared systemd user manager and,
+        # on exit, stop graphical-session.target, logging out the other desktop.
+        self.assertEqual(
+            sessions.launch_command(_session("niri", "/usr/bin/niri-session")),
+            ["dbus-run-session", "--", "niri"],
+        )
+
+    def test_desktops_that_cannot_run_in_background(self):
+        for session in (
+            self.session,
+            _session("gnome", "gnome-session"),
+            _session("hyprland-uwsm", "uwsm", "start", "--", "hyprland.desktop"),
+            _session("broken"),
+        ):
+            with self.subTest(session.id), self.assertRaises(sessions.NotBackgroundCapable):
+                sessions.launch_command(session)
 
     def test_environment(self):
         env = sessions.launch_environment(

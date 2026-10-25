@@ -22,6 +22,6 @@ StandardError=journal
 UtmpIdentifier=tty@VT@
 UtmpMode=user
 Environment=XDG_SESSION_TYPE=wayland XDG_SESSION_CLASS=user XDG_SEAT=seat0 XDG_VTNR=@VT@
-# A login shell picks up PATH and other settings from /etc/profile.
-ExecStart=/bin/sh -lc 'exec /usr/bin/desktop-switcher _run-secondary'
+ExecStart=/usr/bin/desktop-switcher _run-secondary
 Restart=no
+SyslogIdentifier=desktop-switcher

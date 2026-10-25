@@ -88,6 +88,43 @@ def discover(
     return found
 
 
+class NotBackgroundCapable(Exception):
+    pass
+
+
+def background_exec(session: Session) -> tuple[str, ...]:
+    """The command that runs ``session`` as the background desktop.
+
+    Some login entries do not start the compositor themselves: they hand it
+    to the user's systemd manager, which is shared with the desktop already
+    running. ``niri-session`` is one: it runs niri as niri.service outside
+    our login session, and when it ends it stops graphical-session.target,
+    which also ends the other desktop (you get logged out). For those we
+    start the compositor directly, or refuse if we cannot.
+    """
+    names = [os.path.basename(arg) for arg in session.exec]
+    if not names:
+        raise NotBackgroundCapable(f"{session.name} has no command to run.")
+    if names[0] == "niri-session":
+        return ("niri",)
+    if names[0] == "uwsm":
+        raise NotBackgroundCapable(
+            f"{session.name} starts through uwsm, which cannot run next to another desktop. "
+            "Pair the entry without uwsm instead (see 'desktop-switcher list')."
+        )
+    if "startplasma-wayland" in names:
+        raise NotBackgroundCapable(
+            "KDE Plasma cannot be the background desktop yet. "
+            "Log in to Plasma from the login screen and switch to the other desktop from there."
+        )
+    if "gnome-session" in names:
+        raise NotBackgroundCapable(
+            "GNOME cannot be the background desktop. "
+            "Log in to GNOME from the login screen and switch to the other desktop from there."
+        )
+    return session.exec
+
+
 def launch_command(session: Session) -> list[str]:
     """Command that starts ``session`` on its own private D-Bus session bus.
 
@@ -95,7 +132,7 @@ def launch_command(session: Session) -> list[str]:
     user's session bus and fight over service names (two plasmashells, two
     notification daemons). ``dbus-run-session`` gives this desktop its own bus.
     """
-    return ["dbus-run-session", "--", *session.exec]
+    return ["dbus-run-session", "--", *background_exec(session)]
 
 
 def launch_environment(session: Session, base: dict[str, str]) -> dict[str, str]:
