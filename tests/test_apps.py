@@ -143,6 +143,66 @@ class CloseTest(unittest.TestCase):
             self.assertTrue(apps.close(app, [Process(child.pid, os.getpid(), "/usr/bin/sleep")]))
 
 
+class CustomAppTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        system = self.root / "system" / "applications"
+        system.mkdir(parents=True)
+        (system / "spotify-launcher.desktop").write_text(
+            "[Desktop Entry]\nName=Spotify\nExec=env LANG=C spotify-launcher %U\n"
+            "[Desktop Action x]\nName=Other\nExec=other\n"
+        )
+        (system / "com.example.Flat.desktop").write_text("[Desktop Entry]\nName=Flat\nExec=/usr/bin/flatpak run x\n")
+        env = {
+            "XDG_DATA_DIRS": str(system.parent),
+            "XDG_DATA_HOME": str(self.root / "home"),
+            "XDG_CONFIG_HOME": str(self.root / "cfg"),
+        }
+        patcher = mock.patch.dict(os.environ, env)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_add_by_menu_name(self):
+        with mock.patch.object(apps.shutil, "which", return_value=None):
+            app = apps.add_custom("spotify")
+        self.assertEqual(app.id, "spotify-launcher")
+        self.assertEqual(app.name, "Spotify")
+        self.assertEqual(app.command, ("spotify-launcher",))
+        self.assertEqual(app.exe_names, frozenset({"spotify-launcher"}))
+        self.assertIn("spotify-launcher", apps.all_apps())
+
+    def test_process_follows_symlink(self):
+        with mock.patch.object(apps.shutil, "which", return_value="/usr/bin/spotify-launcher"), mock.patch.object(
+            apps.os.path, "realpath", return_value="/opt/spotify/spotify"
+        ):
+            self.assertEqual(apps.add_custom("Spotify").exe_names, frozenset({"spotify"}))
+
+    def test_process_override(self):
+        self.assertEqual(apps.add_custom("spotify-launcher.desktop", "Spotify").exe_names, frozenset({"Spotify"}))
+
+    def test_refusals(self):
+        for query in ("nothing", "Flat", "discord"):
+            with self.assertRaises(apps.AddError):
+                apps.add_custom(query)
+
+    def test_forget(self):
+        apps.add_custom("Spotify", "spotify")
+        self.assertEqual(apps.forget_custom("spotify-launcher").name, "Spotify")
+        self.assertNotIn("spotify-launcher", apps.all_apps())
+        self.assertIsNone(apps.forget_custom("spotify-launcher"))
+
+    def test_add_command_sets_up_launcher(self):
+        with mock.patch("sys.stdout"):
+            cli.main(["apps", "add", "Spotify", "--process", "spotify"])
+        launcher = self.root / "home" / "applications" / "spotify-launcher.desktop"
+        self.assertIn("Exec=desktop-switcher open spotify-launcher -- env LANG=C spotify-launcher %U", launcher.read_text())
+        with mock.patch("sys.stdout"):
+            cli.main(["apps", "forget", "spotify-launcher"])
+        self.assertFalse(launcher.exists())
+
+
 class UserProcessesTest(unittest.TestCase):
     def test_reads_own_process(self):
         me = next(p for p in apps.user_processes() if p.pid == os.getpid())

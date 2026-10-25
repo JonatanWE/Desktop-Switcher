@@ -168,7 +168,10 @@ def cmd_stop(args: argparse.Namespace) -> int:
 
 def cmd_open(args: argparse.Namespace) -> int:
     """Start an app here, first closing it on the other desktop if it runs there."""
-    app = apps.APPS[args.app]
+    app = apps.all_apps().get(args.app)
+    if app is None:
+        apps.notify(f"Unknown app '{args.app}'. See: desktop-switcher apps")
+        return 1
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     command = command or list(app.command)
     here = apps.display_of(dict(os.environ))
@@ -187,18 +190,36 @@ def cmd_open(args: argparse.Namespace) -> int:
 
 
 def cmd_apps(args: argparse.Namespace) -> int:
+    known = apps.all_apps()
     if args.action == "setup":
-        for app in apps.APPS.values():
+        for app in known.values():
             print(apps.setup_launcher(app))
         return 0
     if args.action == "remove":
-        lines = [line for app in apps.APPS.values() if (line := apps.remove_launcher(app))]
+        lines = [line for app in known.values() if (line := apps.remove_launcher(app))]
         print("\n".join(lines) or "Nothing to remove.")
         return 0
+    if args.action == "add":
+        try:
+            app = apps.add_custom(args.launcher, args.process)
+        except apps.AddError as err:
+            sys.exit(str(err))
+        print(f"Added {app.name} (process: {', '.join(sorted(app.exe_names))}).")
+        print(apps.setup_launcher(app))
+        return 0
+    if args.action == "forget":
+        app = apps.forget_custom(args.app)
+        if app is None:
+            sys.exit(f"'{args.app}' is not an app you added. See: desktop-switcher apps")
+        apps.remove_launcher(app)
+        print(f"{app.name} forgotten. Its launcher is back to normal.")
+        return 0
+
     here = apps.display_of(dict(os.environ))
     processes = apps.user_processes()
-    for app in apps.APPS.values():
-        if apps.find_system_launcher(app) is None:
+    custom = apps.custom_apps()
+    for app in known.values():
+        if apps.find_system_launcher(app) is None and app.id not in custom:
             continue
         mains = apps.main_processes(app, processes)
         places = {apps.same_desktop(p.env, here) for p in mains}
@@ -208,7 +229,9 @@ def cmd_apps(args: argparse.Namespace) -> int:
             else "running here"
         )
         moves = "moves" if apps.is_ours(apps.user_launcher(app)) else "does not move (run: desktop-switcher apps setup)"
-        print(f"{app.name}: {where}, {moves}")
+        added = f" [added by you, id: {app.id}]" if app.id in custom else ""
+        print(f"{app.name}: {where}, {moves}{added}")
+    print("\nAdd another app with: desktop-switcher apps add <name from your app menu>")
     return 0
 
 
@@ -320,13 +343,20 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("stop", help="stop the background desktop").set_defaults(func=cmd_stop)
     sub.add_parser("doctor", help="check the setup").set_defaults(func=cmd_doctor)
 
-    p = sub.add_parser("apps", help="show or set up apps that move to the desktop you open them on")
-    p.add_argument("action", nargs="?", choices=["setup", "remove"],
-                   help="setup: make app launchers move the app; remove: undo that")
-    p.set_defaults(func=cmd_apps)
+    p = sub.add_parser("apps", help="show, add or set up apps that move to the desktop you open them on")
+    p.set_defaults(func=cmd_apps, action=None)
+    actions = p.add_subparsers(dest="action", metavar="action")
+    actions.add_parser("setup", help="make app launchers move their app")
+    actions.add_parser("remove", help="put all app launchers back to normal")
+    a = actions.add_parser("add", help="add an app that only runs once, by its name in your app menu")
+    a.add_argument("launcher", help="name in your app menu, such as Spotify, or a .desktop file name")
+    a.add_argument("--process", default="",
+                   help="the app's process name, if it differs from its command (see: ps -e)")
+    a = actions.add_parser("forget", help="stop moving an app you added")
+    a.add_argument("app", help="the id shown by 'desktop-switcher apps'")
 
     p = sub.add_parser("open", help="open an app here, closing it on the other desktop first")
-    p.add_argument("app", choices=sorted(apps.APPS))
+    p.add_argument("app", help="a built-in app (chrome, firefox, discord, steam, ...) or one you added")
     p.add_argument("command", nargs=argparse.REMAINDER, help="-- the command to run (default: the app's own)")
     p.set_defaults(func=cmd_open)
 

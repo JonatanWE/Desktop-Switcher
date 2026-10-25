@@ -49,7 +49,8 @@ Both desktops keep running side by side, so every app you left open is still the
 | `desktop-switcher stop` | close the background desktop and everything open in it |
 | `desktop-switcher doctor` | check the setup |
 | `desktop-switcher shortcut` | add Super+S to niri and Plasma |
-| `desktop-switcher apps` | show where your browser, Discord and Steam are running |
+| `desktop-switcher apps` | show where your browser, Discord, Steam and apps you added are running |
+| `desktop-switcher apps add <app>` | make another app move to the desktop you open it on |
 
 Good to know:
 
@@ -70,6 +71,16 @@ After `desktop-switcher apps setup`, opening one of these apps from your app men
 Text you typed but didn't send or save inside the app, such as a half-written Discord message or form, can be lost when it moves.
 
 The setup adds your own copies of these apps' launchers to `~/.local/share/applications`, so it works the same in both desktops and survives app updates. Apps that start on their own when you log in, and apps installed as Flatpak, are not moved. To go back to the normal launchers, run `desktop-switcher apps remove`.
+
+### Add more apps
+
+Other apps can have the same problem, such as Spotify, Slack or VS Code. Add one by the name it has in your app menu:
+
+```sh
+desktop-switcher apps add Spotify
+```
+
+It then moves like the apps above. `desktop-switcher apps` lists every app it handles, with where each is running. If an added app doesn't move, its running process may have another name than its command; find it with `ps -e` while the app is open, then add it again with `--process <name>`. To stop moving an app you added, run `desktop-switcher apps forget <id>`, using the id `desktop-switcher apps` shows.
 
 You can also move an app from a terminal or a keyboard shortcut with `desktop-switcher open chrome` (or `firefox`, `discord`, `steam`, `chromium`, `brave`).
 
