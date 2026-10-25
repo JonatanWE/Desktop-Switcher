@@ -1,0 +1,27 @@
+# Runs the second desktop of the pair for user %i on virtual terminal @VT@.
+# Installed by install.sh, which replaces @VT@ with the chosen terminal.
+[Unit]
+Description=Background desktop for %i (desktop-switcher)
+After=systemd-user-sessions.service plymouth-quit-wait.service getty@tty@VT@.service
+Conflicts=getty@tty@VT@.service
+
+[Service]
+Type=simple
+User=%i
+# Opening a PAM "login" session on the terminal makes logind register a real
+# seat0 session, so the desktop gets the GPU and input just like after a
+# normal login, and can be switched to with "loginctl activate".
+PAMName=login
+TTYPath=/dev/tty@VT@
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty@VT@
+UtmpMode=user
+Environment=XDG_SESSION_TYPE=wayland XDG_SESSION_CLASS=user XDG_SEAT=seat0 XDG_VTNR=@VT@
+ExecStart=/usr/bin/desktop-switcher _run-secondary
+Restart=no
+SyslogIdentifier=desktop-switcher

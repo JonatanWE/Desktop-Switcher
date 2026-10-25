@@ -1,0 +1,3 @@
+#!/bin/sh
+# Launcher installed to /usr/bin/desktop-switcher.
+PYTHONPATH="/usr/lib/desktop-switcher${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m desktop_switcher "$@"
