@@ -1,8 +1,9 @@
 # Desktop Switcher
+# This project is vibe coded, i don't know how to code.
 
 Switch between two Linux desktops with one key, without logging out, rebooting or closing anything.
 
-Both desktops keep running side by side, so every app you left open is still there when you come back. Tested on CachyOS with an NVIDIA RTX 4070, using KDE Plasma and niri.
+Both desktops keep running side by side, so every app you left open is still there when you come back. Tested on CachyOS with an NVIDIA RTX 4070, using KDE Plasma and niri. please tell me if it worked on your system so i can update this list, and if you have problems feel free to contact me or fix them and send me your resault.
 
 ## Quick start
 
