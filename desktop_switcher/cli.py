@@ -11,7 +11,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import config, logind, sessions, shortcuts
+from . import apps, config, logind, sessions, shortcuts
 from .switch import SwitchError, plan
 
 UNIT_FILE = Path("/etc/systemd/system/desktop-switcher-secondary@.service")
@@ -166,6 +166,75 @@ def cmd_stop(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_open(args: argparse.Namespace) -> int:
+    """Start an app here, first closing it on the other desktop if it runs there."""
+    app = apps.all_apps().get(args.app)
+    if app is None:
+        apps.notify(f"Unknown app '{args.app}'. See: desktop-switcher apps")
+        return 1
+    command = args.command[1:] if args.command[:1] == ["--"] else args.command
+    command = command or list(app.command)
+    here = apps.display_of(dict(os.environ))
+    elsewhere = apps.running_elsewhere(app, apps.user_processes(), here)
+    if elsewhere:
+        apps.notify(f"Moving {app.name} from the other desktop...")
+        if not apps.close(app, elsewhere):
+            apps.notify(f"{app.name} is still closing on the other desktop. Try again in a moment.")
+            return 1
+        command += [arg for arg in app.restore_args if arg not in command]
+    try:
+        os.execvp(command[0], command)
+    except OSError as err:
+        apps.notify(f"Could not start {app.name}: {err}")
+        return 1
+
+
+def cmd_apps(args: argparse.Namespace) -> int:
+    known = apps.all_apps()
+    if args.action == "setup":
+        for app in known.values():
+            print(apps.setup_launcher(app))
+        return 0
+    if args.action == "remove":
+        lines = [line for app in known.values() if (line := apps.remove_launcher(app))]
+        print("\n".join(lines) or "Nothing to remove.")
+        return 0
+    if args.action == "add":
+        try:
+            app = apps.add_custom(args.launcher, args.process)
+        except apps.AddError as err:
+            sys.exit(str(err))
+        print(f"Added {app.name} (process: {', '.join(sorted(app.exe_names))}).")
+        print(apps.setup_launcher(app))
+        return 0
+    if args.action == "forget":
+        app = apps.forget_custom(args.app)
+        if app is None:
+            sys.exit(f"'{args.app}' is not an app you added. See: desktop-switcher apps")
+        apps.remove_launcher(app)
+        print(f"{app.name} forgotten. Its launcher is back to normal.")
+        return 0
+
+    here = apps.display_of(dict(os.environ))
+    processes = apps.user_processes()
+    custom = apps.custom_apps()
+    for app in known.values():
+        if apps.find_system_launcher(app) is None and app.id not in custom:
+            continue
+        mains = apps.main_processes(app, processes)
+        places = {apps.same_desktop(p.env, here) for p in mains}
+        where = (
+            "not running" if not mains
+            else "running on the other desktop" if places == {False}
+            else "running here"
+        )
+        moves = "moves" if apps.is_ours(apps.user_launcher(app)) else "does not move (run: desktop-switcher apps setup)"
+        added = f" [added by you, id: {app.id}]" if app.id in custom else ""
+        print(f"{app.name}: {where}, {moves}{added}")
+    print("\nAdd another app with: desktop-switcher apps add <name from your app menu>")
+    return 0
+
+
 def cmd_run_secondary(args: argparse.Namespace) -> int:
     """Entry point of the systemd unit: run the desktop and report how it ended.
 
@@ -273,6 +342,23 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("shortcut", help="bind Super+S to switch in both desktops").set_defaults(func=cmd_shortcut)
     sub.add_parser("stop", help="stop the background desktop").set_defaults(func=cmd_stop)
     sub.add_parser("doctor", help="check the setup").set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser("apps", help="show, add or set up apps that move to the desktop you open them on")
+    p.set_defaults(func=cmd_apps, action=None)
+    actions = p.add_subparsers(dest="action", metavar="action")
+    actions.add_parser("setup", help="make app launchers move their app")
+    actions.add_parser("remove", help="put all app launchers back to normal")
+    a = actions.add_parser("add", help="add an app that only runs once, by its name in your app menu")
+    a.add_argument("launcher", help="name in your app menu, such as Spotify, or a .desktop file name")
+    a.add_argument("--process", default="",
+                   help="the app's process name, if it differs from its command (see: ps -e)")
+    a = actions.add_parser("forget", help="stop moving an app you added")
+    a.add_argument("app", help="the id shown by 'desktop-switcher apps'")
+
+    p = sub.add_parser("open", help="open an app here, closing it on the other desktop first")
+    p.add_argument("app", help="a built-in app (chrome, firefox, discord, steam, ...) or one you added")
+    p.add_argument("command", nargs=argparse.REMAINDER, help="-- the command to run (default: the app's own)")
+    p.set_defaults(func=cmd_open)
 
     # Used by the systemd unit only.
     sub.add_parser("_run-secondary").set_defaults(func=cmd_run_secondary)
