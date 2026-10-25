@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Switch Desktop
+Comment=Switch to the other desktop without closing anything
+Exec=desktop-switcher switch
+Icon=video-display
+Terminal=false
+Categories=System;Utility;
+Keywords=desktop;session;switch;gaming;

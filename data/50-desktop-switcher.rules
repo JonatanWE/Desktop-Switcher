@@ -1,0 +1,15 @@
+// Let each user start and stop only their own background desktop without a
+// password prompt. Nothing else is allowed by this rule.
+polkit.addRule(function (action, subject) {
+    if (action.id !== "org.freedesktop.systemd1.manage-units") {
+        return polkit.Result.NOT_HANDLED;
+    }
+    if (action.lookup("unit") !== "desktop-switcher-secondary@" + subject.user + ".service") {
+        return polkit.Result.NOT_HANDLED;
+    }
+    var verb = action.lookup("verb");
+    if ((verb === "start" || verb === "stop" || verb === "restart") && subject.local && subject.active) {
+        return polkit.Result.YES;
+    }
+    return polkit.Result.NOT_HANDLED;
+});
